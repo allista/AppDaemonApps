@@ -1,0 +1,5 @@
+config/secrets.yaml
+/config/apps/__pycache__
+/config/apps/apps.yaml.example
+/config/apps/hello.py
+/config/dashboards/Hello.dash

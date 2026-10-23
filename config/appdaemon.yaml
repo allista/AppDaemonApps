@@ -1,0 +1,17 @@
+---
+appdaemon:
+  latitude: 60.190845309859256
+  longitude: 24.96777693971806
+  elevation: 55
+  time_zone: Europe/Helsinki
+  production_mode: false
+  plugins:
+    HASS:
+      type: hass
+      ha_url: http://homeassistant:8123
+      token: !secret hass_token
+http:
+  url: http://appdaemon:5050
+admin:
+api:
+hadashboard:

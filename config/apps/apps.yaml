@@ -1,0 +1,23 @@
+---
+#entrance_lamp:
+#  module: motion_light_with_attrs
+#  class: MotionLightWithAttrs
+#  sensors:
+#    - binary_sensor.entrance_motion_sensor_occupancy
+#  light_entities:
+#    - light.entrance_lamp
+#  delay: 120
+
+bathroom_lamp:
+  module: motion_light_with_attrs
+  class: MotionLightWithAttrs
+  sensors:
+    - binary_sensor.bathroom_motion_sensor_occupancy
+    - binary_sensor.bathroom_motion_sensor_2_occupancy
+    - binary_sensor.bathroom_sound_sensor_occupancy
+  light_entities:
+    - light.bathroom_lamp_1
+    - light.bathroom_lamp_2
+  delay: 180
+  max_delay: 1200
+  delay_steps: 12
