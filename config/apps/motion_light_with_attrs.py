@@ -61,8 +61,8 @@ class MotionLightWithAttrs(hass.Hass):
             else math.exp(math.log(self.max_delay / self.delay) / self.delay_steps)
         )
         self._current_delay: int = self.delay
-        sensors: list = self._get_mandatory_arg("sensors", [])
-        for sensor in sensors:
+        self.sensors: List[str] = self._get_mandatory_arg("sensors", [])
+        for sensor in self.sensors:
             self.listen_state(self.on_motion, sensor)
 
     def update_delay(self) -> None:
@@ -166,6 +166,11 @@ class MotionLightWithAttrs(hass.Hass):
 
     async def _turn_light_off(self, _kwargs) -> None:
         self.cancel()
+        sensor_states = await gather(*(self.get_state(sensor) for sensor in self.sensors))
+        if "on" in sensor_states:
+            self.last_on_event = time.time()
+            self.handle = await self.run_in(self._turn_light_off, self._current_delay)
+            return
         time_since_last_on_event = time.time() - self.last_on_event
         if time_since_last_on_event < self._current_delay:
             still_wait_for = int(self._current_delay - time_since_last_on_event) + 1
