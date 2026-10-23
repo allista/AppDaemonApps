@@ -47,9 +47,11 @@ class MotionLightWithAttrs(hass.Hass):
             return default
         return arg
 
-    def initialize(self) -> None:
+    async def initialize(self) -> None:
         self.handle = None
         self._action_lock = Lock()
+        self.last_action_time = 0
+        self.last_on_event = 0
         self.light_entities: List[str] = self._get_mandatory_arg("light_entities", [])
         self.delay: int = self.args.get("delay", 60)
         self.max_delay: int = max(
@@ -63,8 +65,22 @@ class MotionLightWithAttrs(hass.Hass):
         )
         self._current_delay: int = self.delay
         self.sensors: List[str] = self._get_mandatory_arg("sensors", [])
-        for sensor in self.sensors:
-            self.listen_state(self.on_motion, sensor)
+        async with self._action_lock:
+            for sensor in self.sensors:
+                await self.listen_state(self.on_motion, sensor)
+            sensor_states = await gather(*(self.get_state(sensor) for sensor in self.sensors))
+            if "on" in sensor_states:
+                self.last_on_event = time.time()
+                await self._turn_light_on()
+            else:
+                light_states = await gather(
+                    *(self.get_state(entity) for entity in self.light_entities)
+                )
+                if "on" in light_states:
+                    self.last_on_event = time.time()
+                    self.handle = await self.run_in(
+                        self._turn_light_off, self._current_delay
+                    )
 
     def update_delay(self) -> None:
         if self.exp_base > 1 and self._current_delay < self.max_delay:

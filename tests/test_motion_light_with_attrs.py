@@ -1,11 +1,10 @@
 import asyncio
 import importlib.util
-import inspect
 import sys
 import types
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 
 # Run the app logic without an AppDaemon server or Home Assistant connection.
@@ -77,9 +76,8 @@ class MotionLightTests(unittest.IsolatedAsyncioTestCase):
         app.timer_running = lambda handle: handle in app.timers
         app.cancel_timer = cancel_timer
         app.call_service = call_service
-        result = app.initialize()
-        if inspect.isawaitable(result):
-            await result
+        with patch.object(module, "sleep", new=AsyncMock()):
+            await app.initialize()
         return app
 
     async def test_continuous_occupancy_keeps_lights_on(self):
@@ -179,6 +177,32 @@ class MotionLightTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sequences, ["turn_on"])
         self.assertEqual(len(app.timers), 1)
         self.assertIn(app.handle, app.timers)
+
+    async def test_startup_with_occupancy_turns_on_lights_and_schedules_timeout(self):
+        app = await self.make_app({"binary_sensor.b": "on"})
+        self.assertTrue(app.services)
+        self.assertTrue(all(service == "light/turn_on" for service, _ in app.services))
+        self.assertEqual(len(app.timers), 1)
+        self.assertIn(app.handle, app.timers)
+        self.assertEqual(len(app.listeners), 2)
+
+    async def test_startup_with_lights_on_recovers_shutoff(self):
+        with patch.object(module.time, "time", return_value=1000):
+            app = await self.make_app({"light.a": "on"})
+        self.assertEqual(app.services, [])
+        self.assertEqual(len(app.timers), 1)
+        callback, delay = app.timers.pop(app.handle)
+        self.assertEqual(delay, 180)
+        with patch.object(module.time, "time", return_value=1180):
+            await callback({})
+        self.assertEqual(app.services, [("light/turn_off", {"entity_id": "light.a"})])
+        self.assertIsNone(app.handle)
+
+    async def test_startup_with_no_activity_leaves_lights_off(self):
+        app = await self.make_app()
+        self.assertEqual(app.services, [])
+        self.assertEqual(app.timers, {})
+        self.assertIsNone(app.handle)
 
 
 if __name__ == "__main__":
