@@ -101,6 +101,56 @@ class MotionLightTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(app.services, [("light/turn_off", {"entity_id": "light.a"})])
         self.assertEqual(app.timers, {})
 
+    async def test_overlapping_motion_creates_one_timer(self):
+        app = await self.make_app()
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        sequences = []
+
+        async def waves(service, attrs):
+            sequences.append(service)
+            entered.set()
+            await release.wait()
+
+        app._call_light_service_waves = waves
+        with patch.object(module.time, "time", return_value=1000) as clock:
+            first = asyncio.create_task(app.on_motion("a", "state", "off", "on", {}))
+            await asyncio.wait_for(entered.wait(), 1)
+            clock.return_value = 1001
+            second = asyncio.create_task(app.on_motion("b", "state", "off", "on", {}))
+            await asyncio.sleep(0)
+            self.assertEqual(app.last_on_event, 1001)
+            release.set()
+            await asyncio.wait_for(asyncio.gather(first, second), 1)
+        self.assertEqual(sequences, ["turn_on"])
+        self.assertEqual(len(app.timers), 1)
+        self.assertIn(app.handle, app.timers)
+        self.assertEqual(app.last_on_event, 1001)
+
+    async def test_timeout_waits_for_motion_sequence(self):
+        app = await self.make_app()
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        sequences = []
+
+        async def waves(service, attrs):
+            sequences.append(service)
+            entered.set()
+            await release.wait()
+
+        app._call_light_service_waves = waves
+        with patch.object(module.time, "time", return_value=1000):
+            motion = asyncio.create_task(app.on_motion("a", "state", "off", "on", {}))
+            await asyncio.wait_for(entered.wait(), 1)
+            timeout = asyncio.create_task(app._turn_light_off({}))
+            await asyncio.sleep(0)
+            self.assertFalse(timeout.done())
+            release.set()
+            await asyncio.wait_for(asyncio.gather(motion, timeout), 1)
+        self.assertEqual(sequences, ["turn_on"])
+        self.assertEqual(len(app.timers), 1)
+        self.assertIn(app.handle, app.timers)
+
 
 if __name__ == "__main__":
     unittest.main()

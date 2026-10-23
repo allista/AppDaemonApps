@@ -1,6 +1,6 @@
 import math
 import time
-from asyncio import gather, sleep
+from asyncio import Lock, gather, sleep
 from dataclasses import dataclass
 from typing import Any, List, Optional, Tuple
 
@@ -49,6 +49,7 @@ class MotionLightWithAttrs(hass.Hass):
 
     def initialize(self) -> None:
         self.handle = None
+        self._action_lock = Lock()
         self.light_entities: List[str] = self._get_mandatory_arg("light_entities", [])
         self.delay: int = self.args.get("delay", 60)
         self.max_delay: int = max(
@@ -83,8 +84,10 @@ class MotionLightWithAttrs(hass.Hass):
     async def on_motion(self, _entity, _attribute, _old, new, _kwargs) -> None:
         if new != "on":
             return
-        now = time.time()
-        try:
+        # Record activity before waiting for an in-flight service sequence.
+        self.last_on_event = time.time()
+        async with self._action_lock:
+            now = time.time()
             time_since_last_action = now - self.last_action_time
             if (
                 self.handle is not None
@@ -100,8 +103,6 @@ class MotionLightWithAttrs(hass.Hass):
             else:
                 self.update_delay()
             await self._turn_light_on()
-        finally:
-            self.last_on_event = now
 
     async def _turn_light_on(self) -> None:
         self.cancel()
@@ -165,6 +166,10 @@ class MotionLightWithAttrs(hass.Hass):
             await sleep(1)
 
     async def _turn_light_off(self, _kwargs) -> None:
+        async with self._action_lock:
+            await self._turn_light_off_if_idle()
+
+    async def _turn_light_off_if_idle(self) -> None:
         self.cancel()
         sensor_states = await gather(*(self.get_state(sensor) for sensor in self.sensors))
         if "on" in sensor_states:
