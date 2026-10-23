@@ -105,7 +105,7 @@ class MotionLightWithAttrs(hass.Hass):
             await self._turn_light_on()
 
     async def _turn_light_on(self) -> None:
-        self.cancel()
+        await self.cancel()
         self.update_last_action_time()
         period = await self.get_state("sensor.period_of_day")
         service_attrs = self.light_by_period.get(period, self.default_light).as_dict
@@ -170,7 +170,7 @@ class MotionLightWithAttrs(hass.Hass):
             await self._turn_light_off_if_idle()
 
     async def _turn_light_off_if_idle(self) -> None:
-        self.cancel()
+        await self.cancel()
         sensor_states = await gather(*(self.get_state(sensor) for sensor in self.sensors))
         if "on" in sensor_states:
             self.last_on_event = time.time()
@@ -191,7 +191,8 @@ class MotionLightWithAttrs(hass.Hass):
         await self._call_light_service_waves("turn_off", {})
         self.log("Turned OFF", level="INFO")
 
-    def cancel(self) -> None:
-        if self.handle is not None and self.timer_running(self.handle):
-            self.cancel_timer(self.handle)
-        self.handle = None
+    async def cancel(self) -> None:
+        if self.handle is not None:
+            # A timeout callback's own timer may already have expired.
+            await self.cancel_timer(self.handle, silent=True)
+            self.handle = None

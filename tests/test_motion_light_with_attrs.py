@@ -64,11 +64,9 @@ class MotionLightTests(unittest.IsolatedAsyncioTestCase):
             app.timers[handle] = (callback, delay)
             return handle
 
-        def cancel_timer(handle):
-            app.timers.pop(handle, None)
-            future = asyncio.get_running_loop().create_future()
-            future.set_result(True)
-            return future
+        async def cancel_timer(handle, silent=False):
+            await asyncio.sleep(0)
+            return app.timers.pop(handle, None) is not None
 
         async def call_service(service, **attrs):
             app.services.append((service, attrs))
@@ -126,6 +124,37 @@ class MotionLightTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(app.timers), 1)
         self.assertIn(app.handle, app.timers)
         self.assertEqual(app.last_on_event, 1001)
+
+    async def test_cancel_waits_for_appdaemon_task(self):
+        app = await self.make_app()
+        app.handle = "pending"
+        entered = asyncio.Event()
+        release = asyncio.Event()
+
+        async def cancel_timer(handle, silent=False):
+            self.assertEqual(handle, "pending")
+            self.assertTrue(silent)
+            entered.set()
+            await release.wait()
+            return True
+
+        # AppDaemon's async API wrapper returns a Task in the event loop.
+        app.cancel_timer = lambda *args, **kwargs: asyncio.create_task(
+            cancel_timer(*args, **kwargs)
+        )
+        cancellation = asyncio.create_task(app.cancel())
+        await asyncio.wait_for(entered.wait(), 1)
+        self.assertFalse(cancellation.done())
+        self.assertEqual(app.handle, "pending")
+        release.set()
+        await asyncio.wait_for(cancellation, 1)
+        self.assertIsNone(app.handle)
+
+    async def test_cancel_accepts_expired_timer(self):
+        app = await self.make_app()
+        app.handle = "expired"
+        await app.cancel()
+        self.assertIsNone(app.handle)
 
     async def test_timeout_waits_for_motion_sequence(self):
         app = await self.make_app()
